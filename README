@@ -1,0 +1,14 @@
+This is the initial commit for my music box project. So far, this is just a
+collection of files that I copied from other projects:
+
+The following files are taken from madlld-1.1p1, which is a "how to" program
+about libmad's low-level API for decoding mp3s.
+
+  * src/bstdfile.c
+  * src/bstdfile.h
+  * src/madlld.c
+
+The following file is taken from PulseAudio and shows how to play back audio
+streams on a PulseAudio sound server. See http://pulseaudio.org.
+
+  * src/pacat.c

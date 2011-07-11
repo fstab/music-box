@@ -1,3 +1,8 @@
+/*****************************************************************************
+ * This is a slightly modified version of bstdfile.c,
+ * as shipped with madlld-1.1p1
+ ****************************************************************************/
+
 /* HTAB = 4 */
 /****************************************************************************
  * bstdfile.c -- This module implements a buffered interface for the		*
@@ -49,6 +54,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 #include <sys/types.h>
 #include "bstdfile.h"
 

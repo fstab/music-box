@@ -1,3 +1,8 @@
+/*****************************************************************************
+ * This is a slightly modified version of bstdfile.h,
+ * as shipped with madlld-1.1p1
+ ****************************************************************************/
+
 /* HTAB = 4 */
 /****************************************************************************
  * bstdfile.h -- This module implements a buffered interface for the		*

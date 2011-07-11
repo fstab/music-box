@@ -1,1172 +1,529 @@
-/***
-  This file is part of PulseAudio.
-
-  Copyright 2004-2006 Lennart Poettering
-  Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
-
-  PulseAudio is free software; you can redistribute it and/or modify
-  it under the terms of the GNU Lesser General Public License as published
-  by the Free Software Foundation; either version 2.1 of the License,
-  or (at your option) any later version.
-
-  PulseAudio is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-  General Public License for more details.
-
-  You should have received a copy of the GNU Lesser General Public License
-  along with PulseAudio; if not, write to the Free Software
-  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-  USA.
-***/
-
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
-
-#include <signal.h>
 #include <string.h>
 #include <errno.h>
-#include <unistd.h>
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <getopt.h>
-#include <fcntl.h>
-#include <locale.h>
-
-#include <sndfile.h>
-
-#include <pulse/i18n.h>
 #include <pulse/pulseaudio.h>
-#include <pulse/rtclock.h>
+#include "mad_decoder.h"
+#include "audio_consumer.h"
+#include "log.h"
 
-#include <pulsecore/macro.h>
-#include <pulsecore/core-util.h>
-#include <pulsecore/log.h>
-#include <pulsecore/sndfile-util.h>
-#include <pulsecore/core-util.h>
+/* pulseaudio callbacks */
+static void stream_write_cb(pa_stream *, size_t, void *);
+static void context_state_cb(pa_context *, void *);
+static void stream_underflow_cb(pa_stream *, void *);
+static void stream_drain_complete_cb(pa_stream*, int, void *);
+static void context_drain_complete_cb(pa_context *, void *);
+/* helper functions */
+static const char *pa_msg(audio_consumer *);
+static pa_buffer_attr make_bufattr();
+static void context_ready(audio_consumer *out);
+static error_code malloc_and_init_audio_consumer(audio_consumer**,enum channel);
+static error_code connect_to_pa_server(audio_consumer *out);
+static error_code set_pa_context_state_callback(audio_consumer *out);
+static error_code set_pa_proplist(audio_consumer *out);
+static error_code set_pa_mainloop(audio_consumer *out);
+static error_code set_pa_connection_context(audio_consumer *out);
+static error_code set_pa_stream(audio_consumer *out);
+static error_code connect_pa_stream(audio_consumer *out);
+static error_code start_pa_mainloop_in_new_thread(audio_consumer *out);
+static void unset_all_callbacks(audio_consumer *out);
+static void fetch_data_from_producers(audio_consumer *, signed short *, size_t);
+static void do_free_audio_consumer(audio_consumer *out);
+static void do_shutdown(audio_consumer *out);
 
-#define TIME_EVENT_USEC 50000
+/******************************************************************************
+ * new_audio_consumer() and its helper functions
+ *****************************************************************************/
 
-#define CLEAR_LINE "\x1B[K"
-
-static enum { RECORD, PLAYBACK } mode = PLAYBACK;
-
-static pa_context *context = NULL;
-static pa_stream *stream = NULL;
-static pa_mainloop_api *mainloop_api = NULL;
-
-static void *buffer = NULL;
-static size_t buffer_length = 0, buffer_index = 0;
-
-static pa_io_event* stdio_event = NULL;
-
-static pa_proplist *proplist = NULL;
-static char *device = NULL;
-
-static SNDFILE* sndfile = NULL;
-
-static pa_bool_t verbose = FALSE;
-static pa_volume_t volume = PA_VOLUME_NORM;
-static pa_bool_t volume_is_set = FALSE;
-
-static pa_sample_spec sample_spec = {
-    .format = PA_SAMPLE_S16LE,
-    .rate = 44100,
-    .channels = 2
-};
-static pa_bool_t sample_spec_set = FALSE;
-
-static pa_channel_map channel_map;
-static pa_bool_t channel_map_set = FALSE;
-
-static sf_count_t (*readf_function)(SNDFILE *_sndfile, void *ptr, sf_count_t frames) = NULL;
-static sf_count_t (*writef_function)(SNDFILE *_sndfile, const void *ptr, sf_count_t frames) = NULL;
-
-static pa_stream_flags_t flags = 0;
-
-static size_t latency = 0, process_time = 0;
-static int32_t latency_msec = 0, process_time_msec = 0;
-
-static pa_bool_t raw = TRUE;
-static int file_format = -1;
-
-/* A shortcut for terminating the application */
-static void quit(int ret) {
-    pa_assert(mainloop_api);
-    mainloop_api->quit(mainloop_api, ret);
-}
-
-/* Connection draining complete */
-static void context_drain_complete(pa_context*c, void *userdata) {
-    pa_context_disconnect(c);
-}
-
-/* Stream draining complete */
-static void stream_drain_complete(pa_stream*s, int success, void *userdata) {
-    pa_operation *o = NULL;
-
-    if (!success) {
-        pa_log(_("Failed to drain stream: %s"), pa_strerror(pa_context_errno(context)));
-        quit(1);
+error_code new_audio_consumer(audio_consumer **out_p, enum channel channel) {
+    error_code r;
+    if ( ( r = malloc_and_init_audio_consumer(out_p, channel) ) ) {
+        return r;
     }
-
-    if (verbose)
-        pa_log(_("Playback stream drained."));
-
-    pa_stream_disconnect(stream);
-    pa_stream_unref(stream);
-    stream = NULL;
-
-    if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
-        pa_context_disconnect(context);
-    else {
-        pa_operation_unref(o);
-        if (verbose)
-            pa_log(_("Draining connection to server."));
+    if ( ( r = set_pa_mainloop(*out_p) ) ) {
+        do_free_audio_consumer(*out_p);
+        return r;
     }
+    if ( ( r = set_pa_proplist(*out_p) ) ) {
+        do_free_audio_consumer(*out_p);
+        return r;
+    }
+    if ( ( r = set_pa_connection_context(*out_p) ) ) {
+        do_free_audio_consumer(*out_p);
+        return r;
+    }
+    if ( ( r = set_pa_context_state_callback(*out_p) ) ) {
+        do_free_audio_consumer(*out_p);
+        return r;
+    }
+    if ( ( r = connect_to_pa_server(*out_p) ) ) {
+        pa_context_set_state_callback((*out_p)->pa_ctx, NULL, NULL);
+        do_free_audio_consumer(*out_p);
+        return r;
+    }
+    if ( ( r = start_pa_mainloop_in_new_thread(*out_p) ) ) {
+        unset_all_callbacks(*out_p);
+        do_free_audio_consumer(*out_p);
+        return r;
+    }
+    return SUCCESS;
 }
 
-/* Start draining */
-static void start_drain(void) {
-
-    if (stream) {
-        pa_operation *o;
-
-        pa_stream_set_write_callback(stream, NULL, NULL);
-
-        if (!(o = pa_stream_drain(stream, stream_drain_complete, NULL))) {
-            pa_log(_("pa_stream_drain(): %s"), pa_strerror(pa_context_errno(context)));
-            quit(1);
-            return;
-        }
-
-        pa_operation_unref(o);
-    } else
-        quit(0);
+/* Initialize a new audio_consumer. This is a helper function for
+ * new_audio_consumer() */
+static error_code malloc_and_init_audio_consumer(audio_consumer **out_p,
+        enum channel channel)
+{
+    int i;
+    if ((*out_p = malloc(sizeof(audio_consumer))) == NULL ) {
+        log_error(CONSUMER, "Failed to allocate memory for audio_consumer: %s",
+            strerror(errno));
+        return CONSUMER_OUT_OF_MEMORY;
+    }
+    (*out_p)->channel = channel;
+    (*out_p)->trigger_shutdown = 0;
+    (*out_p)->state = CONSUMER_NOT_INITIALIZED;
+    for ( i=0; i<MAX_PRODUCERS; i++ ) {
+        (*out_p)->producers[i] = NULL;
+    }
+    (*out_p)->underflows = 0;    /* number of underflow events */
+    (*out_p)->sample_spec.rate = 44100;
+    (*out_p)->sample_spec.channels = 2; /* stereo */
+    (*out_p)->sample_spec.format = PA_SAMPLE_S16LE;
+    /* an invalid sample spec would be a programming error */
+    assert(pa_sample_spec_valid(&(*out_p)->sample_spec));
+    (*out_p)->pa_ml = NULL;
+    (*out_p)->pa_ctx = NULL;
+    (*out_p)->stream = NULL;
+    (*out_p)->pa_props = NULL;
+    return SUCCESS;
 }
 
-/* Write some data to the stream */
-static void do_stream_write(size_t length) {
-    size_t l;
-    pa_assert(length);
-
-    if (!buffer || !buffer_length)
-        return;
-
-    l = length;
-    if (l > buffer_length)
-        l = buffer_length;
-
-    if (pa_stream_write(stream, (uint8_t*) buffer + buffer_index, l, NULL, 0, PA_SEEK_RELATIVE) < 0) {
-        pa_log(_("pa_stream_write() failed: %s"), pa_strerror(pa_context_errno(context)));
-        quit(1);
-        return;
+/* Creates a new pa_threaded_mainloop and configures the audio_consumer
+ * with it. This is a helper function for new_audio_consumer() */
+static error_code set_pa_mainloop(audio_consumer *out) {
+    if ((out->pa_ml = pa_threaded_mainloop_new()) == NULL ) {
+        log_error(CONSUMER, "Unable to allocate a pulseaudio threaded main "
+            "loop object.");
+        return CONSUMER_PA_ERROR;
     }
-
-    buffer_length -= l;
-    buffer_index += l;
-
-    if (!buffer_length) {
-        pa_xfree(buffer);
-        buffer = NULL;
-        buffer_index = buffer_length = 0;
-    }
+    return SUCCESS;
 }
 
-/* This is called whenever new data may be written to the stream */
-static void stream_write_callback(pa_stream *s, size_t length, void *userdata) {
-    pa_assert(s);
-    pa_assert(length > 0);
 
-    if (raw) {
-        pa_assert(!sndfile);
-
-        if (stdio_event)
-            mainloop_api->io_enable(stdio_event, PA_IO_EVENT_INPUT);
-
-        if (!buffer)
-            return;
-
-        do_stream_write(length);
-
-    } else {
-        sf_count_t bytes;
-        void *data;
-
-        pa_assert(sndfile);
-
-        for (;;) {
-            size_t data_length = length;
-
-            if (pa_stream_begin_write(s, &data, &data_length) < 0) {
-                pa_log(_("pa_stream_begin_write() failed: %s"), pa_strerror(pa_context_errno(context)));
-                quit(1);
-                return;
-            }
-
-            if (readf_function) {
-                size_t k = pa_frame_size(&sample_spec);
-
-                if ((bytes = readf_function(sndfile, data, (sf_count_t) (data_length/k))) > 0)
-                    bytes *= (sf_count_t) k;
-
-            } else
-                bytes = sf_read_raw(sndfile, data, (sf_count_t) data_length);
-
-            if (bytes > 0)
-                pa_stream_write(s, data, (size_t) bytes, NULL, 0, PA_SEEK_RELATIVE);
-            else
-                pa_stream_cancel_write(s);
-
-            /* EOF? */
-            if (bytes < (sf_count_t) data_length) {
-                start_drain();
-                break;
-            }
-
-            /* Request fulfilled */
-            if ((size_t) bytes >= length)
-                break;
-
-            length -= bytes;
-        }
-    }
+/* Creates a new proplist and configures the audio_consumer with it
+ * This is a helper function for new_audio_consumer() */
+static error_code set_pa_proplist(audio_consumer *out) {
+    out->pa_props = pa_proplist_new();
+    /* TODO: Set properties in proplist */
+    return SUCCESS;
 }
 
-/* This is called whenever new data may is available */
-static void stream_read_callback(pa_stream *s, size_t length, void *userdata) {
-
-    pa_assert(s);
-    pa_assert(length > 0);
-
-    if (raw) {
-        pa_assert(!sndfile);
-
-        if (stdio_event)
-            mainloop_api->io_enable(stdio_event, PA_IO_EVENT_OUTPUT);
-
-        while (pa_stream_readable_size(s) > 0) {
-            const void *data;
-
-            if (pa_stream_peek(s, &data, &length) < 0) {
-                pa_log(_("pa_stream_peek() failed: %s"), pa_strerror(pa_context_errno(context)));
-                quit(1);
-                return;
-            }
-
-            pa_assert(data);
-            pa_assert(length > 0);
-
-            if (buffer) {
-                buffer = pa_xrealloc(buffer, buffer_length + length);
-                memcpy((uint8_t*) buffer + buffer_length, data, length);
-                buffer_length += length;
-            } else {
-                buffer = pa_xmalloc(length);
-                memcpy(buffer, data, length);
-                buffer_length = length;
-                buffer_index = 0;
-            }
-
-            pa_stream_drop(s);
-        }
-
-    } else {
-        pa_assert(sndfile);
-
-        while (pa_stream_readable_size(s) > 0) {
-            sf_count_t bytes;
-            const void *data;
-
-            if (pa_stream_peek(s, &data, &length) < 0) {
-                pa_log(_("pa_stream_peek() failed: %s"), pa_strerror(pa_context_errno(context)));
-                quit(1);
-                return;
-            }
-
-            pa_assert(data);
-            pa_assert(length > 0);
-
-            if (writef_function) {
-                size_t k = pa_frame_size(&sample_spec);
-
-                if ((bytes = writef_function(sndfile, data, (sf_count_t) (length/k))) > 0)
-                    bytes *= (sf_count_t) k;
-
-            } else
-                bytes = sf_write_raw(sndfile, data, (sf_count_t) length);
-
-            if (bytes < (sf_count_t) length)
-                quit(1);
-
-            pa_stream_drop(s);
-        }
+/* Creates a new pulseaudio connection context and configures the
+ * audio_consumer with it. This is a helper function for new_audio_consumer()*/
+static error_code set_pa_connection_context(audio_consumer *out) {
+    pa_mainloop_api *pa_mlapi = pa_threaded_mainloop_get_api(out->pa_ml);
+    pa_proplist *pa_props = out->pa_props;
+    pa_context *pa_ctx = pa_context_new_with_proplist(pa_mlapi, NULL, pa_props);
+    if ( pa_ctx == NULL ) {
+        log_error(CONSUMER, "Unable to instantiate a pulseaudio connection "
+            "context.");
+        return CONSUMER_PA_ERROR;
     }
+    out->pa_ctx = pa_ctx;
+    return SUCCESS;
 }
 
-/* This routine is called whenever the stream state changes */
-static void stream_state_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
+/* The state callback will be called when the context is connected to
+ * the pulseaudio server. This is a helper function for new_audio_consumer() */
+static error_code set_pa_context_state_callback(audio_consumer *out) {
+    pa_context_set_state_callback(out->pa_ctx, context_state_cb, out);
+    return SUCCESS;
+}
 
-    switch (pa_stream_get_state(s)) {
-        case PA_STREAM_CREATING:
-        case PA_STREAM_TERMINATED:
+/* Connect the pulseaudio context to the pulseaudio server. This is a helper
+ * function for new_audio_consumer() */
+static error_code connect_to_pa_server(audio_consumer *out) {
+    if ( pa_context_connect(out->pa_ctx, NULL, 0, NULL) < 0 ) {
+        log_error(CONSUMER, "Unable to connect to the pulseaudio server: %s",
+            pa_msg(out));
+        return CONSUMER_PA_ERROR;
+    }
+    return SUCCESS;
+}
+
+/* Start pulseaudio threaded mainloop. This is a helper function for
+ * new_audio_consumer() */
+static error_code start_pa_mainloop_in_new_thread(audio_consumer *out) {
+    if ( pa_threaded_mainloop_start(out->pa_ml) ) {
+        log_error(CONSUMER, "Failed to start pulseaudio mainloop "
+            "in background thread.");
+        return CONSUMER_PA_ERROR;
+    }
+    return SUCCESS;
+}
+
+/******************************************************************************
+ * context_state_cb()
+ * This will be called by pulseaudio when the context changes state.
+ * So far, we are only interested in PA_CONTEXT_READY: When the context is
+ * ready, we initialize a pulseaudio stream and connect it to the server.
+ *****************************************************************************/
+
+static void context_state_cb(pa_context *context, void *userdata) {
+    audio_consumer *out = (audio_consumer *) userdata;
+    pa_context_state_t state = pa_context_get_state(context);
+    assert ( out != NULL && out->pa_ctx == context );
+    switch  (state) {
+        case PA_CONTEXT_READY:
+            log_debug(CONSUMER, "The connection to the pulseaudio server is "
+                "established. The pulseaudio context is ready to execute "
+                "operations.");
+            context_ready(out);
+            out->state = CONSUMER_READY;
             break;
-
-        case PA_STREAM_READY:
-
-            if (verbose) {
-                const pa_buffer_attr *a;
-                char cmt[PA_CHANNEL_MAP_SNPRINT_MAX], sst[PA_SAMPLE_SPEC_SNPRINT_MAX];
-
-                pa_log(_("Stream successfully created."));
-
-                if (!(a = pa_stream_get_buffer_attr(s)))
-                    pa_log(_("pa_stream_get_buffer_attr() failed: %s"), pa_strerror(pa_context_errno(pa_stream_get_context(s))));
-                else {
-
-                    if (mode == PLAYBACK)
-                        pa_log(_("Buffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u"), a->maxlength, a->tlength, a->prebuf, a->minreq);
-                    else {
-                        pa_assert(mode == RECORD);
-                        pa_log(_("Buffer metrics: maxlength=%u, fragsize=%u"), a->maxlength, a->fragsize);
-                    }
-                }
-
-                pa_log(_("Using sample spec '%s', channel map '%s'."),
-                        pa_sample_spec_snprint(sst, sizeof(sst), pa_stream_get_sample_spec(s)),
-                        pa_channel_map_snprint(cmt, sizeof(cmt), pa_stream_get_channel_map(s)));
-
-                pa_log(_("Connected to device %s (%u, %ssuspended)."),
-                        pa_stream_get_device_name(s),
-                        pa_stream_get_device_index(s),
-                        pa_stream_is_suspended(s) ? "" : "not ");
-            }
-
+        case PA_CONTEXT_UNCONNECTED:
+            log_debug(CONSUMER, "The pulseaudio context hasn't been connected "
+                "yet.");
             break;
-
-        case PA_STREAM_FAILED:
-        default:
-            pa_log(_("Stream error: %s"), pa_strerror(pa_context_errno(pa_stream_get_context(s))));
-            quit(1);
-    }
-}
-
-static void stream_suspended_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose) {
-        if (pa_stream_is_suspended(s))
-            pa_log(_("Stream device suspended.%s"), CLEAR_LINE);
-        else
-            pa_log(_("Stream device resumed.%s"), CLEAR_LINE);
-    }
-}
-
-static void stream_underflow_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose)
-        pa_log(_("Stream underrun.%s"),  CLEAR_LINE);
-}
-
-static void stream_overflow_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose)
-        pa_log(_("Stream overrun.%s"), CLEAR_LINE);
-}
-
-static void stream_started_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose)
-        pa_log(_("Stream started.%s"), CLEAR_LINE);
-}
-
-static void stream_moved_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose)
-        pa_log(_("Stream moved to device %s (%u, %ssuspended).%s"), pa_stream_get_device_name(s), pa_stream_get_device_index(s), pa_stream_is_suspended(s) ? "" : _("not "),  CLEAR_LINE);
-}
-
-static void stream_buffer_attr_callback(pa_stream *s, void *userdata) {
-    pa_assert(s);
-
-    if (verbose)
-        pa_log(_("Stream buffer attributes changed.%s"),  CLEAR_LINE);
-}
-
-static void stream_event_callback(pa_stream *s, const char *name, pa_proplist *pl, void *userdata) {
-    char *t;
-
-    pa_assert(s);
-    pa_assert(name);
-    pa_assert(pl);
-
-    t = pa_proplist_to_string_sep(pl, ", ");
-    pa_log("Got event '%s', properties '%s'", name, t);
-    pa_xfree(t);
-}
-
-/* This is called whenever the context status changes */
-static void context_state_callback(pa_context *c, void *userdata) {
-    pa_assert(c);
-
-    switch (pa_context_get_state(c)) {
         case PA_CONTEXT_CONNECTING:
+            log_debug(CONSUMER, "A pulseaudio connection is being "
+                "established.");
+            break;
         case PA_CONTEXT_AUTHORIZING:
+            log_debug(CONSUMER, "The pulseaudio client is authorizing itself "
+                "to the daemon.");
+            break;
         case PA_CONTEXT_SETTING_NAME:
+            log_debug(CONSUMER, "The pulseaudio client is passing its "
+                "application name to the daemon.");
             break;
-
-        case PA_CONTEXT_READY: {
-            pa_buffer_attr buffer_attr;
-
-            pa_assert(c);
-            pa_assert(!stream);
-
-            if (verbose)
-                pa_log(_("Connection established.%s"), CLEAR_LINE);
-
-            if (!(stream = pa_stream_new_with_proplist(c, NULL, &sample_spec, &channel_map, proplist))) {
-                pa_log(_("pa_stream_new() failed: %s"), pa_strerror(pa_context_errno(c)));
-                goto fail;
-            }
-
-            pa_stream_set_state_callback(stream, stream_state_callback, NULL);
-            pa_stream_set_write_callback(stream, stream_write_callback, NULL);
-            pa_stream_set_read_callback(stream, stream_read_callback, NULL);
-            pa_stream_set_suspended_callback(stream, stream_suspended_callback, NULL);
-            pa_stream_set_moved_callback(stream, stream_moved_callback, NULL);
-            pa_stream_set_underflow_callback(stream, stream_underflow_callback, NULL);
-            pa_stream_set_overflow_callback(stream, stream_overflow_callback, NULL);
-            pa_stream_set_started_callback(stream, stream_started_callback, NULL);
-            pa_stream_set_event_callback(stream, stream_event_callback, NULL);
-            pa_stream_set_buffer_attr_callback(stream, stream_buffer_attr_callback, NULL);
-
-            pa_zero(buffer_attr);
-            buffer_attr.maxlength = (uint32_t) -1;
-            buffer_attr.prebuf = (uint32_t) -1;
-
-            if (latency_msec > 0) {
-                buffer_attr.fragsize = buffer_attr.tlength = pa_usec_to_bytes(latency_msec * PA_USEC_PER_MSEC, &sample_spec);
-                flags |= PA_STREAM_ADJUST_LATENCY;
-            } else if (latency > 0) {
-                buffer_attr.fragsize = buffer_attr.tlength = (uint32_t) latency;
-                flags |= PA_STREAM_ADJUST_LATENCY;
-            } else
-                buffer_attr.fragsize = buffer_attr.tlength = (uint32_t) -1;
-
-            if (process_time_msec > 0) {
-                buffer_attr.minreq = pa_usec_to_bytes(process_time_msec * PA_USEC_PER_MSEC, &sample_spec);
-            } else if (process_time > 0)
-                buffer_attr.minreq = (uint32_t) process_time;
-            else
-                buffer_attr.minreq = (uint32_t) -1;
-
-            if (mode == PLAYBACK) {
-                pa_cvolume cv;
-                if (pa_stream_connect_playback(stream, device, &buffer_attr, flags, volume_is_set ? pa_cvolume_set(&cv, sample_spec.channels, volume) : NULL, NULL) < 0) {
-                    pa_log(_("pa_stream_connect_playback() failed: %s"), pa_strerror(pa_context_errno(c)));
-                    goto fail;
-                }
-
-            } else {
-                if (pa_stream_connect_record(stream, device, &buffer_attr, flags) < 0) {
-                    pa_log(_("pa_stream_connect_record() failed: %s"), pa_strerror(pa_context_errno(c)));
-                    goto fail;
-                }
-            }
-
-            break;
-        }
-
-        case PA_CONTEXT_TERMINATED:
-            quit(0);
-            break;
-
         case PA_CONTEXT_FAILED:
+            log_debug(CONSUMER, "The pulseaudio connection failed or was "
+                "disconnected.");
+            break;
+        case PA_CONTEXT_TERMINATED:
+            log_debug(CONSUMER, "The pulseaudio connection was terminated "
+                "cleanly.");
+            break;
         default:
-            pa_log(_("Connection failure: %s"), pa_strerror(pa_context_errno(c)));
-            goto fail;
+            log_warn(CONSUMER, "Illegal argument: context_state_cb() received "
+                "an unexpected state: %d", state);
     }
-
-    return;
-
-fail:
-    quit(1);
-
 }
 
-/* New data on STDIN **/
-static void stdin_callback(pa_mainloop_api*a, pa_io_event *e, int fd, pa_io_event_flags_t f, void *userdata) {
-    size_t l, w = 0;
-    ssize_t r;
-
-    pa_assert(a == mainloop_api);
-    pa_assert(e);
-    pa_assert(stdio_event == e);
-
-    if (buffer) {
-        mainloop_api->io_enable(stdio_event, PA_IO_EVENT_NULL);
+/* Helper function for context_state_cb().
+ * Initializes the stream when the context becomes ready. */
+static void context_ready(audio_consumer *out) {
+    error_code r;
+    if ( ( r = set_pa_stream(out) ) ) {
+        out->state = CONSUMER_PULSEAUDIO_ERROR;
+        unset_all_callbacks(out);
         return;
     }
-
-    if (!stream || pa_stream_get_state(stream) != PA_STREAM_READY || !(l = w = pa_stream_writable_size(stream)))
-        l = 4096;
-
-    buffer = pa_xmalloc(l);
-
-    if ((r = read(fd, buffer, l)) <= 0) {
-        if (r == 0) {
-            if (verbose)
-                pa_log(_("Got EOF."));
-
-            start_drain();
-
-        } else {
-            pa_log(_("read() failed: %s"), strerror(errno));
-            quit(1);
-        }
-
-        mainloop_api->io_free(stdio_event);
-        stdio_event = NULL;
+    /* will be called when pulseaudio requests audio data */
+    pa_stream_set_write_callback(out->stream, stream_write_cb, out);
+    /* will be called when an buffer underflow occurs */
+    pa_stream_set_underflow_callback(out->stream, stream_underflow_cb, out);
+    if ( ( r = connect_pa_stream(out) ) ) {
+        out->state = CONSUMER_PULSEAUDIO_ERROR;
+        unset_all_callbacks(out);
         return;
     }
-
-    buffer_length = (uint32_t) r;
-    buffer_index = 0;
-
-    if (w)
-        do_stream_write(w);
 }
 
-/* Some data may be written to STDOUT */
-static void stdout_callback(pa_mainloop_api*a, pa_io_event *e, int fd, pa_io_event_flags_t f, void *userdata) {
-    ssize_t r;
+/* Creates a new pa_stream and configures the audio_consumer with it.
+ * This is a helper function for context_ready() */
+static error_code set_pa_stream(audio_consumer *out) {
+    pa_stream *s;
+    s = pa_stream_new(out->pa_ctx, "playback", &out->sample_spec, NULL);
+    if ( s == NULL ) {
+        log_error(CONSUMER, "Unable to create pulseaudio stream: %s",
+            pa_msg(out));
+        return CONSUMER_PA_ERROR;
+    }
+    out->stream = s;
+    return SUCCESS;
+}
 
-    pa_assert(a == mainloop_api);
-    pa_assert(e);
-    pa_assert(stdio_event == e);
+/* Connects the pulseaudio stream to the pulseaudio server.
+ * This is a helper function for context_ready() */
+static error_code connect_pa_stream(audio_consumer *out) {
+    pa_buffer_attr bufattr = make_bufattr();
+    int r = pa_stream_connect_playback(out->stream, NULL, &bufattr,
+        PA_STREAM_INTERPOLATE_TIMING |
+        PA_STREAM_ADJUST_LATENCY |
+        PA_STREAM_AUTO_TIMING_UPDATE, NULL, NULL);
+    if (r < 0) {
+        log_error(CONSUMER, "Failed to connect stream to pulseaudio sink: %s",
+            pa_msg(out));
+        return CONSUMER_PA_ERROR;
+    }
+    return SUCCESS;
+}
 
-    if (!buffer) {
-        mainloop_api->io_enable(stdio_event, PA_IO_EVENT_NULL);
+/* Initialize pa_buffer_attr for the given latency.
+ * We don't use any latency settings so far. For more info on the bufattr
+ * fields see http://freedesktop.org/software/pulseaudio/doxygen/streams.html
+ */
+static pa_buffer_attr make_bufattr() {
+    pa_buffer_attr bufattr;
+    bufattr.fragsize  = (uint32_t)-1;
+    bufattr.maxlength = (uint32_t)-1;
+    bufattr.minreq    = (uint32_t)-1;
+    bufattr.prebuf    = (uint32_t)-1;
+    bufattr.tlength   = (uint32_t)-1;
+    return bufattr;
+}
+
+/******************************************************************************
+ * stream_write_cb()
+ * This will be called by pulseaudio when we need to provide audio data
+ * for playback.
+ *****************************************************************************/
+
+static void stream_write_cb(pa_stream *s, size_t n_requested_bytes,
+        void *userdata) {
+    audio_consumer *out = (audio_consumer *) userdata;
+    unsigned char *data_to_write = NULL;
+    size_t n_bytes_written = 0;
+
+    assert ( out != NULL && out->stream == s);
+    if ( out->trigger_shutdown ) {
+        do_shutdown(out);
         return;
     }
-
-    pa_assert(buffer_length);
-
-    if ((r = write(fd, (uint8_t*) buffer+buffer_index, buffer_length)) <= 0) {
-        pa_log(_("write() failed: %s"), strerror(errno));
-        quit(1);
-
-        mainloop_api->io_free(stdio_event);
-        stdio_event = NULL;
-        return;
-    }
-
-    buffer_length -= (uint32_t) r;
-    buffer_index += (uint32_t) r;
-
-    if (!buffer_length) {
-        pa_xfree(buffer);
-        buffer = NULL;
-        buffer_length = buffer_index = 0;
+    while ( n_bytes_written < n_requested_bytes ) {
+        int r;
+        size_t n_bytes_to_write = n_requested_bytes - n_bytes_written;
+        r = pa_stream_begin_write(s, (void**)&data_to_write, &n_bytes_to_write);
+        if ( r < 0 ) {
+            log_error(CONSUMER, "Prepare writing data to the pulseaudio server"
+                " failed: %s", pa_msg(out));
+            pa_stream_cancel_write(s);
+            return;
+        }
+        if ( n_bytes_to_write > 0 ) {
+            memset(data_to_write, 0, n_bytes_to_write); // 0 is silence.
+            fetch_data_from_producers(out, (signed short *) data_to_write,
+                n_bytes_to_write / sizeof(short));
+            pa_stream_write(s, data_to_write, n_bytes_to_write, NULL, 0,
+                PA_SEEK_RELATIVE);
+            n_bytes_written += n_bytes_to_write;
+        }
     }
 }
 
-/* UNIX signal to quit recieved */
-static void exit_signal_callback(pa_mainloop_api*m, pa_signal_event *e, int sig, void *userdata) {
-    if (verbose)
-        pa_log(_("Got signal, exiting."));
-    quit(0);
+/* Helper function for stream_write_cb():
+ * Ask the producers for the next samples to play. If a producer is not
+ * playing, it will just add silence */
+static void fetch_data_from_producers(audio_consumer *out, signed short *data,
+        size_t n_samples) {
+    int i=0;
+    for ( i=0; i<n_samples; i++ ) {
+        data[i] = (signed short) 0;
+    }
+    for ( i=0; i<MAX_PRODUCERS; i++ ) {
+        if ( out->producers[i] != NULL ) {
+            if ( out->channel == HEADPHONES ) {
+                write_next_sample_to_headphones(out->producers[i], data,
+                    n_samples);
+            }
+            else {
+                write_next_sample_to_speakers(out->producers[i], data,
+                    n_samples);
+            }
+        }
+    }
 }
 
-/* Show the current latency */
-static void stream_update_timing_callback(pa_stream *s, int success, void *userdata) {
-    pa_usec_t l, usec;
-    int negative = 0;
+/******************************************************************************
+ * stream_underflow_cb()
+ * This will be called by pulseaudio when a buffer underflow occurs.
+ * We should use this to increase latency.
+ *****************************************************************************/
 
-    pa_assert(s);
-
-    if (!success ||
-        pa_stream_get_time(s, &usec) < 0 ||
-        pa_stream_get_latency(s, &l, &negative) < 0) {
-        pa_log(_("Failed to get latency: %s"), pa_strerror(pa_context_errno(context)));
-        quit(1);
-        return;
-    }
-
-    fprintf(stderr, _("Time: %0.3f sec; Latency: %0.0f usec."),
-            (float) usec / 1000000,
-            (float) l * (negative?-1.0f:1.0f));
-    fprintf(stderr, "        \r");
+static void stream_underflow_cb(pa_stream *s, void *userdata) {
+    log_info(CONSUMER, "Pulseaudio buffer underflow.");
+    audio_consumer *out = (audio_consumer *) userdata;
+    out->underflows++;
+    /* TODO: increase latency, as in SimpleAsyncPlayback.c */
 }
 
-#ifdef SIGUSR1
-/* Someone requested that the latency is shown */
-static void sigusr1_signal_callback(pa_mainloop_api*m, pa_signal_event *e, int sig, void *userdata) {
+/******************************************************************************
+ * shutdown()
+ *****************************************************************************/
 
-    if (!stream)
-        return;
-
-    pa_operation_unref(pa_stream_update_timing_info(stream, stream_update_timing_callback, NULL));
-}
-#endif
-
-static void time_event_callback(pa_mainloop_api *m, pa_time_event *e, const struct timeval *t, void *userdata) {
-    if (stream && pa_stream_get_state(stream) == PA_STREAM_READY) {
-        pa_operation *o;
-        if (!(o = pa_stream_update_timing_info(stream, stream_update_timing_callback, NULL)))
-            pa_log(_("pa_stream_update_timing_info() failed: %s"), pa_strerror(pa_context_errno(context)));
-        else
-            pa_operation_unref(o);
-    }
-
-    pa_context_rttime_restart(context, e, pa_rtclock_now() + TIME_EVENT_USEC);
+/* The extern shutdown() function will just set a flag. The real shutdown
+ * starts in stream_write_cb(), when do_shutdown() is called */
+error_code consumer_shutdown(audio_consumer *out) {
+    out->trigger_shutdown = 1;
+    return SUCCESS;
 }
 
-static void help(const char *argv0) {
-
-    printf(_("%s [options]\n\n"
-             "  -h, --help                            Show this help\n"
-             "      --version                         Show version\n\n"
-             "  -r, --record                          Create a connection for recording\n"
-             "  -p, --playback                        Create a connection for playback\n\n"
-             "  -v, --verbose                         Enable verbose operations\n\n"
-             "  -s, --server=SERVER                   The name of the server to connect to\n"
-             "  -d, --device=DEVICE                   The name of the sink/source to connect to\n"
-             "  -n, --client-name=NAME                How to call this client on the server\n"
-             "      --stream-name=NAME                How to call this stream on the server\n"
-             "      --volume=VOLUME                   Specify the initial (linear) volume in range 0...65536\n"
-             "      --rate=SAMPLERATE                 The sample rate in Hz (defaults to 44100)\n"
-             "      --format=SAMPLEFORMAT             The sample type, one of s16le, s16be, u8, float32le,\n"
-             "                                        float32be, ulaw, alaw, s32le, s32be, s24le, s24be,\n"
-             "                                        s24-32le, s24-32be (defaults to s16ne)\n"
-             "      --channels=CHANNELS               The number of channels, 1 for mono, 2 for stereo\n"
-             "                                        (defaults to 2)\n"
-             "      --channel-map=CHANNELMAP          Channel map to use instead of the default\n"
-             "      --fix-format                      Take the sample format from the sink the stream is\n"
-             "                                        being connected to.\n"
-             "      --fix-rate                        Take the sampling rate from the sink the stream is\n"
-             "                                        being connected to.\n"
-             "      --fix-channels                    Take the number of channels and the channel map\n"
-             "                                        from the sink the stream is being connected to.\n"
-             "      --no-remix                        Don't upmix or downmix channels.\n"
-             "      --no-remap                        Map channels by index instead of name.\n"
-             "      --latency=BYTES                   Request the specified latency in bytes.\n"
-             "      --process-time=BYTES              Request the specified process time per request in bytes.\n"
-             "      --latency-msec=MSEC               Request the specified latency in msec.\n"
-             "      --process-time-msec=MSEC          Request the specified process time per request in msec.\n"
-             "      --property=PROPERTY=VALUE         Set the specified property to the specified value.\n"
-             "      --raw                             Record/play raw PCM data.\n"
-             "      --passthrough                     passthrough data \n"
-             "      --file-format[=FFORMAT]           Record/play formatted PCM data.\n"
-             "      --list-file-formats               List available file formats.\n")
-           , argv0);
+/* Shutdown the application. This is called from the pulseaudio mainloop
+ * thread in stream_write_cb() */
+static void do_shutdown(audio_consumer *out) {
+    log_debug(CONSUMER, "Shutting down.");
+    unset_all_callbacks(out);
+    /* stream_drain_complete_cb will be called when drain is done */
+    pa_operation *o = pa_stream_drain(out->stream,stream_drain_complete_cb,out);
+    if ( o == NULL ) {
+        log_error(CONSUMER, "Failed to start pulseaudio stream drain: %s",
+            pa_msg(out));
+        /* In case of error, we do our best and continue manually */
+        stream_drain_complete_cb(out->stream, 0, out);
+    }
+    pa_operation_unref(o);
 }
 
-enum {
-    ARG_VERSION = 256,
-    ARG_STREAM_NAME,
-    ARG_VOLUME,
-    ARG_SAMPLERATE,
-    ARG_SAMPLEFORMAT,
-    ARG_CHANNELS,
-    ARG_CHANNELMAP,
-    ARG_FIX_FORMAT,
-    ARG_FIX_RATE,
-    ARG_FIX_CHANNELS,
-    ARG_NO_REMAP,
-    ARG_NO_REMIX,
-    ARG_LATENCY,
-    ARG_PROCESS_TIME,
-    ARG_RAW,
-    ARG_PASSTHROUGH,
-    ARG_PROPERTY,
-    ARG_FILE_FORMAT,
-    ARG_LIST_FILE_FORMATS,
-    ARG_LATENCY_MSEC,
-    ARG_PROCESS_TIME_MSEC
-};
-
-int main(int argc, char *argv[]) {
-    pa_mainloop* m = NULL;
-    int ret = 1, c;
-    char *bn, *server = NULL;
-    pa_time_event *time_event = NULL;
-    const char *filename = NULL;
-
-    static const struct option long_options[] = {
-        {"record",       0, NULL, 'r'},
-        {"playback",     0, NULL, 'p'},
-        {"device",       1, NULL, 'd'},
-        {"server",       1, NULL, 's'},
-        {"client-name",  1, NULL, 'n'},
-        {"stream-name",  1, NULL, ARG_STREAM_NAME},
-        {"version",      0, NULL, ARG_VERSION},
-        {"help",         0, NULL, 'h'},
-        {"verbose",      0, NULL, 'v'},
-        {"volume",       1, NULL, ARG_VOLUME},
-        {"rate",         1, NULL, ARG_SAMPLERATE},
-        {"format",       1, NULL, ARG_SAMPLEFORMAT},
-        {"channels",     1, NULL, ARG_CHANNELS},
-        {"channel-map",  1, NULL, ARG_CHANNELMAP},
-        {"fix-format",   0, NULL, ARG_FIX_FORMAT},
-        {"fix-rate",     0, NULL, ARG_FIX_RATE},
-        {"fix-channels", 0, NULL, ARG_FIX_CHANNELS},
-        {"no-remap",     0, NULL, ARG_NO_REMAP},
-        {"no-remix",     0, NULL, ARG_NO_REMIX},
-        {"latency",      1, NULL, ARG_LATENCY},
-        {"process-time", 1, NULL, ARG_PROCESS_TIME},
-        {"property",     1, NULL, ARG_PROPERTY},
-        {"raw",          0, NULL, ARG_RAW},
-        {"passthrough",  0, NULL, ARG_PASSTHROUGH},
-        {"file-format",  2, NULL, ARG_FILE_FORMAT},
-        {"list-file-formats", 0, NULL, ARG_LIST_FILE_FORMATS},
-        {"latency-msec", 1, NULL, ARG_LATENCY_MSEC},
-        {"process-time-msec", 1, NULL, ARG_PROCESS_TIME_MSEC},
-        {NULL,           0, NULL, 0}
-    };
-
-    setlocale(LC_ALL, "");
-    bindtextdomain(GETTEXT_PACKAGE, PULSE_LOCALEDIR);
-
-    bn = pa_path_get_filename(argv[0]);
-
-    if (strstr(bn, "play")) {
-        mode = PLAYBACK;
-        raw = FALSE;
-    } else if (strstr(bn, "record")) {
-        mode = RECORD;
-        raw = FALSE;
-    } else if (strstr(bn, "cat")) {
-        mode = PLAYBACK;
-        raw = TRUE;
-    } if (strstr(bn, "rec") || strstr(bn, "mon")) {
-        mode = RECORD;
-        raw = TRUE;
+/* This callback is called when the stream drain is complete, i.e. the stream
+ * can be disconnected and we can start draining the pulseaudio context. */
+static void stream_drain_complete_cb(pa_stream*s, int success, void *userdata){
+    audio_consumer *out = (audio_consumer *) userdata;
+    assert(out != NULL && out->stream == s);
+    log_debug(CONSUMER, "Draining pulseaudio stream has completed.");
+    if (!success) {
+        log_error(CONSUMER, "Failed to complete pulseaudio stream drain: %s",
+            pa_msg(out));
     }
+    pa_stream_disconnect(s);
+    pa_stream_unref(s);
+    pa_operation *o;
+    o = pa_context_drain(out->pa_ctx, context_drain_complete_cb, out);
+    if ( o == NULL ) {
+        log_error(CONSUMER, "Failed to start pulseaudio context drain: %s",
+            pa_msg(out));
+        /* In case of error, we do our best and continue manually */
+        context_drain_complete_cb(out->pa_ctx, out);
+    }
+    pa_operation_unref(o);
+}
 
-    proplist = pa_proplist_new();
+/* This callback is called when the context drain is complete, i.e. the
+ * context is ready to be disconnected. */
+static void context_drain_complete_cb(pa_context*c, void *userdata) {
+    audio_consumer *out = (audio_consumer *) userdata;
+    assert ( out != NULL && out->pa_ctx == c);
+    log_debug(CONSUMER, "Draining pulseaudio context has completed.");
+    pa_context_disconnect(c);
+    out->state = CONSUMER_SHUT_DOWN;
+}
 
-    while ((c = getopt_long(argc, argv, "rpd:s:n:hv", long_options, NULL)) != -1) {
+/******************************************************************************
+ * functions for querying the audio_consumer's state
+ *****************************************************************************/
 
-        switch (c) {
-            case 'h' :
-                help(bn);
-                ret = 0;
-                goto quit;
+/* see audio_consumer.h */
 
-            case ARG_VERSION:
-                printf(_("pacat %s\n"
-                         "Compiled with libpulse %s\n"
-                         "Linked with libpulse %s\n"),
-                       PACKAGE_VERSION,
-                       pa_get_headers_version(),
-                       pa_get_library_version());
-                ret = 0;
-                goto quit;
+int is_consumer_ready(audio_consumer *out) {
+    return out->state == CONSUMER_READY;
+}
 
-            case 'r':
-                mode = RECORD;
-                break;
+int is_consumer_shutdown(audio_consumer *out) {
+    return out->state == CONSUMER_SHUT_DOWN;
+}
 
-            case 'p':
-                mode = PLAYBACK;
-                break;
+/******************************************************************************
+ * register_input()
+ *****************************************************************************/
 
-            case 'd':
-                pa_xfree(device);
-                device = pa_xstrdup(optarg);
-                break;
-
-            case 's':
-                pa_xfree(server);
-                server = pa_xstrdup(optarg);
-                break;
-
-            case 'n': {
-                char *t;
-
-                if (!(t = pa_locale_to_utf8(optarg)) ||
-                    pa_proplist_sets(proplist, PA_PROP_APPLICATION_NAME, t) < 0) {
-
-                    pa_log(_("Invalid client name '%s'"), t ? t : optarg);
-                    pa_xfree(t);
-                    goto quit;
-                }
-
-                pa_xfree(t);
-                break;
-            }
-
-            case ARG_STREAM_NAME: {
-                char *t;
-
-                if (!(t = pa_locale_to_utf8(optarg)) ||
-                    pa_proplist_sets(proplist, PA_PROP_MEDIA_NAME, t) < 0) {
-
-                    pa_log(_("Invalid stream name '%s'"), t ? t : optarg);
-                    pa_xfree(t);
-                    goto quit;
-                }
-
-                pa_xfree(t);
-                break;
-            }
-
-            case 'v':
-                verbose = 1;
-                break;
-
-            case ARG_VOLUME: {
-                int v = atoi(optarg);
-                volume = v < 0 ? 0U : (pa_volume_t) v;
-                volume_is_set = TRUE;
-                break;
-            }
-
-            case ARG_CHANNELS:
-                sample_spec.channels = (uint8_t) atoi(optarg);
-                sample_spec_set = TRUE;
-                break;
-
-            case ARG_SAMPLEFORMAT:
-                sample_spec.format = pa_parse_sample_format(optarg);
-                sample_spec_set = TRUE;
-                break;
-
-            case ARG_SAMPLERATE:
-                sample_spec.rate = (uint32_t) atoi(optarg);
-                sample_spec_set = TRUE;
-                break;
-
-            case ARG_CHANNELMAP:
-                if (!pa_channel_map_parse(&channel_map, optarg)) {
-                    pa_log(_("Invalid channel map '%s'"), optarg);
-                    goto quit;
-                }
-
-                channel_map_set = TRUE;
-                break;
-
-            case ARG_FIX_CHANNELS:
-                flags |= PA_STREAM_FIX_CHANNELS;
-                break;
-
-            case ARG_FIX_RATE:
-                flags |= PA_STREAM_FIX_RATE;
-                break;
-
-            case ARG_FIX_FORMAT:
-                flags |= PA_STREAM_FIX_FORMAT;
-                break;
-
-            case ARG_NO_REMIX:
-                flags |= PA_STREAM_NO_REMIX_CHANNELS;
-                break;
-
-            case ARG_NO_REMAP:
-                flags |= PA_STREAM_NO_REMAP_CHANNELS;
-                break;
-
-            case ARG_LATENCY:
-                if (((latency = (size_t) atoi(optarg))) <= 0) {
-                    pa_log(_("Invalid latency specification '%s'"), optarg);
-                    goto quit;
-                }
-                break;
-
-            case ARG_PROCESS_TIME:
-                if (((process_time = (size_t) atoi(optarg))) <= 0) {
-                    pa_log(_("Invalid process time specification '%s'"), optarg);
-                    goto quit;
-                }
-                break;
-
-            case ARG_LATENCY_MSEC:
-                if (((latency_msec = (int32_t) atoi(optarg))) <= 0) {
-                    pa_log(_("Invalid latency specification '%s'"), optarg);
-                    goto quit;
-                }
-                break;
-
-            case ARG_PROCESS_TIME_MSEC:
-                if (((process_time_msec = (int32_t) atoi(optarg))) <= 0) {
-                    pa_log(_("Invalid process time specification '%s'"), optarg);
-                    goto quit;
-                }
-                break;
-
-            case ARG_PROPERTY: {
-                char *t;
-
-                if (!(t = pa_locale_to_utf8(optarg)) ||
-                    pa_proplist_setp(proplist, t) < 0) {
-
-                    pa_xfree(t);
-                    pa_log(_("Invalid property '%s'"), optarg);
-                    goto quit;
-                }
-
-                pa_xfree(t);
-                break;
-            }
-
-            case ARG_RAW:
-                raw = TRUE;
-                break;
-
-            case ARG_PASSTHROUGH:
-                flags |= PA_STREAM_PASSTHROUGH;
-                break;
-
-            case ARG_FILE_FORMAT:
-                raw = FALSE;
-
-                if (optarg) {
-                    if ((file_format = pa_sndfile_format_from_string(optarg)) < 0) {
-                        pa_log(_("Unknown file format %s."), optarg);
-                        goto quit;
-                    }
-                }
-
-                raw = FALSE;
-                break;
-
-            case ARG_LIST_FILE_FORMATS:
-                pa_sndfile_dump_formats();
-                ret = 0;
-                goto quit;
-
-            default:
-                goto quit;
+/* see audio_consumer.h */
+error_code register_input(audio_consumer *out, audio_producer *prod) {
+    int i=0;
+    log_debug(CONSUMER, "Registering new audio producer.");
+    assert ( out != NULL && prod != NULL );
+    if ( out->state == CONSUMER_PULSEAUDIO_ERROR ) {
+        log_error(CONSUMER, "Rejecting new audio producer, because there "
+            " was a pulseaudio error.");
+        return CONSUMER_PA_ERROR;
+    }
+    assert ( out->state == CONSUMER_READY );
+    for ( i=0; i<MAX_PRODUCERS; i++ ) {
+        if ( out->producers[i] == NULL ) {
+            out->producers[i] = prod;
+            log_debug(CONSUMER, "Audio producer registered.");
+            return SUCCESS;
         }
     }
+    log_warn(CONSUMER, "Maximum number of producers reached: %d",
+        MAX_PRODUCERS);
+    return CONSUMER_REACHED_MAX_NUMBER_OF_PRODUCERS;
+}
 
-    if (!pa_sample_spec_valid(&sample_spec)) {
-        pa_log(_("Invalid sample specification"));
-        goto quit;
-    }
+/******************************************************************************
+ * unregister_input()
+ *****************************************************************************/
 
-    if (optind+1 == argc) {
-        int fd;
-
-        filename = argv[optind];
-
-        if ((fd = pa_open_cloexec(argv[optind], mode == PLAYBACK ? O_RDONLY : O_WRONLY|O_TRUNC|O_CREAT, 0666)) < 0) {
-            pa_log(_("open(): %s"), strerror(errno));
-            goto quit;
-        }
-
-        if (dup2(fd, mode == PLAYBACK ? STDIN_FILENO : STDOUT_FILENO) < 0) {
-            pa_log(_("dup2(): %s"), strerror(errno));
-            goto quit;
-        }
-
-        pa_close(fd);
-
-    } else if (optind+1 <= argc) {
-        pa_log(_("Too many arguments."));
-        goto quit;
-    }
-
-    if (!raw) {
-        SF_INFO sfi;
-        pa_zero(sfi);
-
-        if (mode == RECORD) {
-            /* This might patch up the sample spec */
-            if (pa_sndfile_write_sample_spec(&sfi, &sample_spec) < 0) {
-                pa_log(_("Failed to generate sample specification for file."));
-                goto quit;
-            }
-
-            /* Transparently upgrade classic .wav to wavex for multichannel audio */
-            if (file_format <= 0) {
-                if ((sample_spec.channels == 2 && (!channel_map_set || (channel_map.map[0] == PA_CHANNEL_POSITION_LEFT &&
-                                                                        channel_map.map[1] == PA_CHANNEL_POSITION_RIGHT))) ||
-                    (sample_spec.channels == 1 && (!channel_map_set || (channel_map.map[0] == PA_CHANNEL_POSITION_MONO))))
-                    file_format = SF_FORMAT_WAV;
-                else
-                    file_format = SF_FORMAT_WAVEX;
-            }
-
-            sfi.format |= file_format;
-        }
-
-        if (!(sndfile = sf_open_fd(mode == RECORD ? STDOUT_FILENO : STDIN_FILENO,
-                                   mode == RECORD ? SFM_WRITE : SFM_READ,
-                                   &sfi, 0))) {
-            pa_log(_("Failed to open audio file."));
-            goto quit;
-        }
-
-        if (mode == PLAYBACK) {
-            if (sample_spec_set)
-                pa_log(_("Warning: specified sample specification will be overwritten with specification from file."));
-
-            if (pa_sndfile_read_sample_spec(sndfile, &sample_spec) < 0) {
-                pa_log(_("Failed to determine sample specification from file."));
-                goto quit;
-            }
-            sample_spec_set = TRUE;
-
-            if (!channel_map_set) {
-                /* Allow the user to overwrite the channel map on the command line */
-                if (pa_sndfile_read_channel_map(sndfile, &channel_map) < 0) {
-                    if (sample_spec.channels > 2)
-                        pa_log(_("Warning: Failed to determine channel map from file."));
-                } else
-                    channel_map_set = TRUE;
-            }
+/* see audio_consumer.h */
+error_code unregister_input(audio_consumer *out, audio_producer *prod) {
+    int i=0;
+    log_debug(CONSUMER, "Unregistering audio producer.");
+    assert(out != NULL && prod != NULL);
+    for ( i=0; i<MAX_PRODUCERS; i++ ) {
+        if ( out->producers[i] == prod ) {
+            out->producers[i] = NULL;
+            log_debug(CONSUMER, "Audio producer unregistered.");
+            return SUCCESS;
         }
     }
+    log_error(CONSUMER, "The audio_producer was not registered.");
+    return CONSUMER_DOES_NOT_KNOW_PRODUCER;
+}
 
-    if (!channel_map_set)
-        pa_channel_map_init_extend(&channel_map, sample_spec.channels, PA_CHANNEL_MAP_DEFAULT);
 
-    if (!pa_channel_map_compatible(&channel_map, &sample_spec)) {
-        pa_log(_("Channel map doesn't match sample specification"));
-        goto quit;
-    }
+/******************************************************************************
+ * free_audio_consumer()
+ *****************************************************************************/
 
-    if (!raw) {
-        pa_proplist *sfp;
+/* see audio_consumer.h */
+error_code free_audio_consumer(audio_consumer *out) {
+    assert ( out != NULL && out->state == CONSUMER_SHUT_DOWN );
+    do_free_audio_consumer(out);
+    return SUCCESS;
+}
 
-        if (mode == PLAYBACK)
-            readf_function = pa_sndfile_readf_function(&sample_spec);
-        else {
-            if (pa_sndfile_write_channel_map(sndfile, &channel_map) < 0)
-                pa_log(_("Warning: failed to write channel map to file."));
+/******************************************************************************
+ * Common helper functions
+ *****************************************************************************/
 
-            writef_function = pa_sndfile_writef_function(&sample_spec);
+static void do_free_audio_consumer(audio_consumer *out) {
+    if ( out != NULL ) {
+        if ( out->pa_props != NULL ) {
+            pa_proplist_free(out->pa_props);
+            out->pa_props = NULL;
         }
-
-        /* Fill in libsndfile prop list data */
-        sfp = pa_proplist_new();
-        pa_sndfile_init_proplist(sndfile, sfp);
-        pa_proplist_update(proplist, PA_UPDATE_MERGE, sfp);
-        pa_proplist_free(sfp);
-    }
-
-    if (verbose) {
-        char tss[PA_SAMPLE_SPEC_SNPRINT_MAX], tcm[PA_CHANNEL_MAP_SNPRINT_MAX];
-
-        pa_log(_("Opening a %s stream with sample specification '%s' and channel map '%s'."),
-                mode == RECORD ? _("recording") : _("playback"),
-                pa_sample_spec_snprint(tss, sizeof(tss), &sample_spec),
-                pa_channel_map_snprint(tcm, sizeof(tcm), &channel_map));
-    }
-
-    /* Fill in client name if none was set */
-    if (!pa_proplist_contains(proplist, PA_PROP_APPLICATION_NAME)) {
-        char *t;
-
-        if ((t = pa_locale_to_utf8(bn))) {
-            pa_proplist_sets(proplist, PA_PROP_APPLICATION_NAME, t);
-            pa_xfree(t);
+        if ( out->pa_ml != NULL ) {
+            pa_threaded_mainloop_free(out->pa_ml);
+            out->pa_ml = NULL;
         }
+        free(out);
     }
+}
 
-    /* Fill in media name if none was set */
-    if (!pa_proplist_contains(proplist, PA_PROP_MEDIA_NAME)) {
-        const char *t;
-
-        if ((t = filename) ||
-            (t = pa_proplist_gets(proplist, PA_PROP_APPLICATION_NAME)))
-            pa_proplist_sets(proplist, PA_PROP_MEDIA_NAME, t);
+/* When we shutdown, or in case of error, we must make sure that pulseaudio
+ * quits calling callbacks with the defunct audio_consumer.
+ * This method sets all callbacks NULL.
+ * ---
+ * TODO: The name of this function is misleading: Actually, we just unset
+ * the callbacks needed for playback, but we keep the callbacks needed during
+ * shutdown */
+static void unset_all_callbacks(audio_consumer *out) {
+    if ( out->pa_ctx != NULL ) {
+        pa_context_set_state_callback(out->pa_ctx, NULL, NULL);
     }
-
-    /* Set up a new main loop */
-    if (!(m = pa_mainloop_new())) {
-        pa_log(_("pa_mainloop_new() failed."));
-        goto quit;
+    if ( out->stream != NULL ) {
+        pa_stream_set_write_callback(out->stream, NULL, NULL);
+        pa_stream_set_underflow_callback(out->stream, NULL, NULL);
     }
+}
 
-    mainloop_api = pa_mainloop_get_api(m);
-
-    pa_assert_se(pa_signal_init(mainloop_api) == 0);
-    pa_signal_new(SIGINT, exit_signal_callback, NULL);
-    pa_signal_new(SIGTERM, exit_signal_callback, NULL);
-#ifdef SIGUSR1
-    pa_signal_new(SIGUSR1, sigusr1_signal_callback, NULL);
-#endif
-    pa_disable_sigpipe();
-
-    if (raw) {
-        if (!(stdio_event = mainloop_api->io_new(mainloop_api,
-                                                 mode == PLAYBACK ? STDIN_FILENO : STDOUT_FILENO,
-                                                 mode == PLAYBACK ? PA_IO_EVENT_INPUT : PA_IO_EVENT_OUTPUT,
-                                                 mode == PLAYBACK ? stdin_callback : stdout_callback, NULL))) {
-            pa_log(_("io_new() failed."));
-            goto quit;
-        }
+/* Get pulseaudio's error message */
+static const char *pa_msg(audio_consumer *out) {
+    const char *result = NULL;
+    if ( out->pa_ctx != NULL ) {
+        result = pa_strerror(pa_context_errno(out->pa_ctx));
     }
-
-    /* Create a new connection context */
-    if (!(context = pa_context_new_with_proplist(mainloop_api, NULL, proplist))) {
-        pa_log(_("pa_context_new() failed."));
-        goto quit;
+    if ( result == NULL ) {
+        return "unknown";
     }
-
-    pa_context_set_state_callback(context, context_state_callback, NULL);
-
-    /* Connect the context */
-    if (pa_context_connect(context, server, 0, NULL) < 0) {
-        pa_log(_("pa_context_connect() failed: %s"), pa_strerror(pa_context_errno(context)));
-        goto quit;
-    }
-
-    if (verbose) {
-        if (!(time_event = pa_context_rttime_new(context, pa_rtclock_now() + TIME_EVENT_USEC, time_event_callback, NULL))) {
-            pa_log(_("pa_context_rttime_new() failed."));
-            goto quit;
-        }
-    }
-
-    /* Run the main loop */
-    if (pa_mainloop_run(m, &ret) < 0) {
-        pa_log(_("pa_mainloop_run() failed."));
-        goto quit;
-    }
-
-quit:
-    if (stream)
-        pa_stream_unref(stream);
-
-    if (context)
-        pa_context_unref(context);
-
-    if (stdio_event) {
-        pa_assert(mainloop_api);
-        mainloop_api->io_free(stdio_event);
-    }
-
-    if (time_event) {
-        pa_assert(mainloop_api);
-        mainloop_api->time_free(time_event);
-    }
-
-    if (m) {
-        pa_signal_done();
-        pa_mainloop_free(m);
-    }
-
-    pa_xfree(buffer);
-
-    pa_xfree(server);
-    pa_xfree(device);
-
-    if (sndfile)
-        sf_close(sndfile);
-
-    if (proplist)
-        pa_proplist_free(proplist);
-
-    return ret;
+    return result;
 }

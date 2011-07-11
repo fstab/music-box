@@ -1,14 +1,49 @@
-This is the initial commit for my music box project. So far, this is just a
-collection of files that I copied from other projects:
+This is an intermediate step towards implementing a simple DJ software library.
 
-The following files are taken from madlld-1.1p1, which is a "how to" program
-about libmad's low-level API for decoding mp3s.
+At its current state, this is just a test program. It might not be too usefull.
 
-  * src/bstdfile.c
-  * src/bstdfile.h
-  * src/madlld.c
+If you are interested in its future development, please follow my blog at
+http://blog.fstab.de
 
-The following file is taken from PulseAudio and shows how to play back audio
-streams on a PulseAudio sound server. See http://pulseaudio.org.
+---
 
-  * src/pacat.c
+The current version provides a simple scriptable audio player.
+It supports the following command line options:
+
+./music-box [-l logfile] [-q]
+   -l <logfile>: Log to file instead of stderr
+   -q: Quiet mode. Do not show the prompt. Usefull for scripting.
+
+When you run music-box, you will be prompted for commands. The following
+commands are supported:
+
+  load <file.mp3> as <var>
+    Load an mp3 file and store it in variable <var>
+    For filenames with spaces, type the filename in "double quotes".
+  play <var>
+    Start playing the file loaded as <var>
+  pause <var>
+    Pause the file loaded as <var>
+  resume <var>
+    If <var> is paused, resume playing <var>
+  wait for <var>
+    wait until file <var> is done playing
+  unload <var>
+    Unload the mp3 file and free the variable <var>
+  sleep <seconds>
+    sleep for <seconds> seconds
+  quit
+    quit the application
+
+You can also write the commands into a script file and pipe it to music-box.
+The following is an example script which starts playing test1.mp3, waits
+3 seconds, and starts mixing in test2.mp3.
+
+load test1.mp3 as x
+load test2.mp3 as y
+play x
+sleep 3
+play y
+wait x
+wait y
+quit

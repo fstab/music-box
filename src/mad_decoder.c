@@ -1,3 +1,8 @@
+/*****************************************************************************
+ * This is a slightly modified version of madlld.c,
+ * as shipped with madlld-1.1p1
+ ****************************************************************************/
+
 /* HTAB = 4 */
 /****************************************************************************
  * madlld.c -- A simple program decoding an MPEG audio stream to 16-bit		*
@@ -53,9 +58,15 @@
 #include <errno.h>
 #include <math.h> /* for pow() and log10() */
 #include <mad.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <assert.h>
 #include "bstdfile.h"
+#include "mad_decoder.h"
+#include "log.h"
 
 /* Should we use getopt() for command-line arguments parsing? */
+/*
 #if (defined(unix) || defined (__unix__) || defined(__unix) || \
 	 defined(HAVE_GETOPT)) \
 	&& !defined(WITHOUT_GETOPT)
@@ -65,6 +76,7 @@
 #include <ctype.h>
 #undef HAVE_GETOPT
 #endif
+*/
 
 /****************************************************************************
  * Global variables.														*
@@ -73,18 +85,18 @@
 /* Keeps a pointer to the program invocation name for the error
  * messages.
  */
-const char	*ProgName;
+/*const char	*ProgName;*/
 
 /* This table represents the subband-domain filter characteristics. It
  * is initialized by the ParseArgs() function and is used as
  * coefficients against each subband samples when DoFilter is non-nul.
  */
-mad_fixed_t	Filter[32];
+/*mad_fixed_t	Filter[32];*/
 
 /* DoFilter is non-nul when the Filter table defines a filter bank to
  * be applied to the decoded audio subbands.
  */
-int			DoFilter=0;
+/*int			DoFilter=0;*/
 
 /****************************************************************************
  * Return an error string associated with a mad error code.					*
@@ -198,7 +210,7 @@ static signed short MadFixedToSshort(mad_fixed_t Fixed)
 /****************************************************************************
  * Print human readable informations about an audio MPEG frame.				*
  ****************************************************************************/
-static int PrintFrameInfo(FILE *fp, struct mad_header *Header)
+static int PrintFrameInfo(struct mad_header *Header)
 {
 	const char	*Layer,
 				*Mode,
@@ -267,17 +279,18 @@ static int PrintFrameInfo(FILE *fp, struct mad_header *Header)
 			break;
 	}
 
-	fprintf(fp,"%s: %lu kb/s audio MPEG layer %s stream %s CRC, "
-			"%s with %s emphasis at %d Hz sample rate\n",
-			ProgName,Header->bitrate,Layer,
+	log_debug(MP3_DECODER, "%lu kb/s audio MPEG layer %s stream %s CRC, "
+			"%s with %s emphasis at %d Hz sample rate",
+			Header->bitrate,Layer,
 			Header->flags&MAD_FLAG_PROTECTION?"with":"without",
 			Mode,Emphasis,Header->samplerate);
-	return(ferror(fp));
+	return 0;
 }
 
 /****************************************************************************
  * Applies a frequency-domain filter to audio data in the subband-domain.	*
  ****************************************************************************/
+/*
 static void ApplyFilter(struct mad_frame *Frame)
 {
 	int	Channel,
@@ -285,10 +298,12 @@ static void ApplyFilter(struct mad_frame *Frame)
 		Samples,
 		SubBand;
 
+*/
 	/* There is two application loops, each optimized for the number
 	 * of audio channels to process. The first alternative is for
 	 * two-channel frames, the second is for mono-audio.
 	 */
+/*
 	Samples=MAD_NSBSAMPLES(&Frame->header);
 	if(Frame->header.mode!=MAD_MODE_SINGLE_CHANNEL)
 		for(Channel=0;Channel<2;Channel++)
@@ -304,27 +319,37 @@ static void ApplyFilter(struct mad_frame *Frame)
 					mad_f_mul(Frame->sbsample[0][Sample][SubBand],
 							  Filter[SubBand]);
 }
+*/
 
 /****************************************************************************
  * Main decoding loop. This is where mad is used.							*
  ****************************************************************************/
 #define INPUT_BUFFER_SIZE	(5*8192)
 #define OUTPUT_BUFFER_SIZE	8192 /* Must be an integer multiple of 4. */
-static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
+static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n_samples)
 {
 	struct mad_stream	Stream;
 	struct mad_frame	Frame;
 	struct mad_synth	Synth;
 	mad_timer_t			Timer;
 	unsigned char		InputBuffer[INPUT_BUFFER_SIZE+MAD_BUFFER_GUARD],
+/*
 						OutputBuffer[OUTPUT_BUFFER_SIZE],
 						*OutputPtr=OutputBuffer,
+*/
 						*GuardPtr=NULL;
+/*
 	const unsigned char	*OutputBufferEnd=OutputBuffer+OUTPUT_BUFFER_SIZE;
+*/
 	int					Status=0,
 						i;
 	unsigned long		FrameCount=0;
 	bstdfile_t			*BstdFile;
+
+	/* initialize output buffer */
+	size_t sample_data_size = 16;
+	*sample_data = calloc(sample_data_size, 2);
+	*n_samples = 0;
 
 	/* First the structures used by libmad must be initialized. */
 	mad_stream_init(&Stream);
@@ -347,8 +372,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 	BstdFile=NewBstdFile(InputFp);
 	if(BstdFile==NULL)
 	{
-		fprintf(stderr,"%s: can't create a new bstdfile_t (%s).\n",
-				ProgName,strerror(errno));
+		log_error(MP3_DECODER, "mad-decoder: can't create a new bstdfile_t (%s)", strerror(errno));
 		return(1);
 	}
 
@@ -403,12 +427,11 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 			{
 				if(ferror(InputFp))
 				{
-					fprintf(stderr,"%s: read error on bit-stream (%s)\n",
-							ProgName,strerror(errno));
+					log_error(MP3_DECODER, "Read error on bit-stream (%s)", strerror(errno));
 					Status=1;
 				}
 				if(feof(InputFp))
-					fprintf(stderr,"%s: end of input stream\n",ProgName);
+					log_debug(MP3_DECODER, "End of input stream");
 				break;
 			}
 
@@ -490,8 +513,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 				if(Stream.error!=MAD_ERROR_LOSTSYNC ||
 				   Stream.this_frame!=GuardPtr)
 				{
-					fprintf(stderr,"%s: recoverable frame level error (%s)\n",
-							ProgName,MadErrorString(&Stream));
+					log_debug(MP3_DECODER, "Recoverable frame level error ()");//, MadErrorString(&Stream));
 					fflush(stderr);
 				}
 				continue;
@@ -501,8 +523,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 					continue;
 				else
 				{
-					fprintf(stderr,"%s: unrecoverable frame level error (%s).\n",
-							ProgName,MadErrorString(&Stream));
+					log_error(MP3_DECODER, "Unrecoverable frame level error ().\n");//,MadErrorString(&Stream));
 					Status=1;
 					break;
 				}
@@ -513,7 +534,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 		 * stream.
 		 */
 		if(FrameCount==0)
-			if(PrintFrameInfo(stderr,&Frame.header))
+			if(PrintFrameInfo(&Frame.header))
 			{
 				Status=1;
 				break;
@@ -536,8 +557,10 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 		 * if some processing was required. Detailed explanations are
 		 * given in the ApplyFilter() function.
 		 */
+/*
 		if(DoFilter)
 			ApplyFilter(&Frame);
+*/
 
 		/* Once decoded the frame is synthesized to PCM samples. No errors
 		 * are reported by mad_synth_frame();
@@ -556,18 +579,29 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 
 			/* Left channel */
 			Sample=MadFixedToSshort(Synth.pcm.samples[0][i]);
+/*
 			*(OutputPtr++)=Sample>>8;
 			*(OutputPtr++)=Sample&0xff;
+*/
+			(*sample_data)[(*n_samples)++] = Sample;
 
 			/* Right channel. If the decoded stream is monophonic then
 			 * the right output channel is the same as the left one.
 			 */
 			if(MAD_NCHANNELS(&Frame.header)==2)
 				Sample=MadFixedToSshort(Synth.pcm.samples[1][i]);
+			(*sample_data)[(*n_samples)++] = Sample;
+/*
 			*(OutputPtr++)=Sample>>8;
 			*(OutputPtr++)=Sample&0xff;
+*/
 
 			/* Flush the output buffer if it is full. */
+			if ( *n_samples == sample_data_size ) {
+				sample_data_size *= 2L;
+				*sample_data = realloc(*sample_data, sample_data_size * sizeof(signed short));
+			}
+/*
 			if(OutputPtr==OutputBufferEnd)
 			{
 				if(fwrite(OutputBuffer,1,OUTPUT_BUFFER_SIZE,OutputFp)!=OUTPUT_BUFFER_SIZE)
@@ -579,6 +613,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 				}
 				OutputPtr=OutputBuffer;
 			}
+*/
 		}
 	}while(1);
 
@@ -597,6 +632,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 	/* If the output buffer is not empty and no error occurred during
      * the last write, then flush it.
 	 */
+/*
 	if(OutputPtr!=OutputBuffer && Status!=2)
 	{
 		size_t	BufferSize=OutputPtr-OutputBuffer;
@@ -608,6 +644,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 			Status=2;
 		}
 	}
+*/
 
 	/* Accounting report if no error occurred. */
 	if(!Status)
@@ -632,8 +669,7 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
 		 */
 		mad_timer_string(Timer,Buffer,"%lu:%02lu.%03u",
 						 MAD_UNITS_MINUTES,MAD_UNITS_MILLISECONDS,0);
-		fprintf(stderr,"%s: %lu frames decoded (%s).\n",
-				ProgName,FrameCount,Buffer);
+		log_debug(MP3_DECODER, "mad-decoder: %lu frames decoded (%s)", FrameCount,Buffer);
 	}
 
 	/* That's the end of the world (in the H. G. Wells way). */
@@ -644,9 +680,10 @@ static int MpegAudioDecoder(FILE *InputFp, FILE *OutputFp)
  * Prints a message on stderr explaining the usage of the program. Two		*
  * versions of this function are provided, depending on the system type.	*
  ****************************************************************************/
+/*
 static void PrintUsage(void)
 {
-#ifdef HAVE_GETOPT /* This version is for Unix systems. */
+#ifdef HAVE_GETOPT
 	fprintf(stderr,"usage: %s [-p] [-a <amp/atten>]\n"
 			"\t-a\tSets an amplification or attenuation factor expressed\n"
 			"\t\tin dB. The factor bounds are [-Inf,%f].\n"
@@ -654,7 +691,7 @@ static void PrintUsage(void)
 			"\t\ttransmitted through a telephone switch.\n",
 			ProgName,
 			20.*log10(mad_f_todouble(MAD_F_MAX)));
-#else /* HAVE_GETOPT */ /* This other version is for non-Unix systems. */
+#else
 	fprintf(stderr,"usage: %s [<number>] [phone]\n"
 			"\t<number> is a floating point number expressing an "
 			"amplification\n"
@@ -665,8 +702,9 @@ static void PrintUsage(void)
 			"\t\tas if transmitted through a telephone switch.\n",
 			ProgName,
 			20.*log10(mad_f_todouble(MAD_F_MAX)));
-#endif /* HAVE_GETOPT */
+#endif
 }
+*/
 
 /****************************************************************************
  * Command-line arguments parsing. We use two methods and two command-line	*
@@ -674,6 +712,7 @@ static void PrintUsage(void)
  * old getopt() method, other system are offered a really primitive options	*
  * interface.																*
  ****************************************************************************/
+/*
 static int ParseArgs(int argc, char * const argv[])
 {
 	int				DoPhoneFilter=0,
@@ -681,21 +720,21 @@ static int ParseArgs(int argc, char * const argv[])
 	double			AmpFactor;
 	mad_fixed_t		Amp=MAD_F_ONE;
 
-#ifdef HAVE_GETOPT /* This version is for Unix systems. */
+#ifdef HAVE_GETOPT * This version is for Unix systems. *
 	int				Option;
 
-	/* Parse the command line. */
+	* Parse the command line. *
 	while((Option=getopt(argc,argv,"a:p"))!=-1)
 		switch(Option)
 		{
-			/* {5} Set the amplification/attenuation factor, expressed
+			* {5} Set the amplification/attenuation factor, expressed
 			 * in dB.
-			 */
+			 *
 			case 'a':
-				/* If the current linear amplification factor is not
+				* If the current linear amplification factor is not
 				 * one (MAD_F_ONE) then is was already set. Setting it
 				 * again is not permitted.
-				 */
+				 *
 				if(Amp!=MAD_F_ONE)
 				{
 					fprintf(stderr,"%s: the amplification/attenuation factor "
@@ -703,12 +742,12 @@ static int ParseArgs(int argc, char * const argv[])
 					return(1);
 				}
 
-				/* The decibel value is converted to a linear factor.
+				* The decibel value is converted to a linear factor.
 				 * That factor is checked against the maximum value
 				 * that can be stored in a mad_fixed_t. The upper
 				 * bound is MAD_F_MAX, it is converted to a double
 				 * value with mad_f_todouble() for comparison.
-				 */
+				 *
 				AmpFactor=pow(10.,atof(optarg)/20);
 				if(AmpFactor>mad_f_todouble(MAD_F_MAX))
 				{
@@ -717,15 +756,15 @@ static int ParseArgs(int argc, char * const argv[])
 					return(1);
 				}
 
-				/* Eventually the amplification factor is converted
+				* Eventually the amplification factor is converted
 				 * from double to fixed point with mad_f_tofixed().
-				 */
+				 *
 				Amp=mad_f_tofixed(AmpFactor);
 				break;
 
-			/* {6} The output is filtered through a telephone wire. */
+			* {6} The output is filtered through a telephone wire. *
 			case 'p':
-				/* Only one occurrence of the option is permitted. */
+				* Only one occurrence of the option is permitted. *
 				if(DoPhoneFilter)
 				{
 					fprintf(stderr,"%s: the phone-line simulation option "
@@ -733,26 +772,26 @@ static int ParseArgs(int argc, char * const argv[])
 					return(1);
 				}
 
-				/* The output will be filtered through a band-pass
+				* The output will be filtered through a band-pass
 				 * filter simulating a phone line transmission.
-				 */
+				 *
 				DoPhoneFilter=1;
 				break;
 
-			/* Print usage guide for invalid options. */
+			* Print usage guide for invalid options. *
 			case '?':
 			default:
 				PrintUsage();
 				return(1);
 		}
-#else /* HAVE_GETOPT */ /* This other version is for non-Unix systems. */
-	/* Scan all command-line arguments. */
+#else * HAVE_GETOPT * * This other version is for non-Unix systems. *
+	* Scan all command-line arguments. *
 	for(i=1;i<argc;i++)
 	{
-		/* Set the amplification factor if the current argument looks
+		* Set the amplification factor if the current argument looks
 		 * like a number. Look at the comment of the case marked {5}
 		 * in the Unix section for details.
-		 */
+		 *
 		if(*argv[i]=='+' || *argv[i]=='-' || isdigit(*argv[i]))
 		{
 			if(Amp!=MAD_F_ONE)
@@ -773,10 +812,10 @@ static int ParseArgs(int argc, char * const argv[])
 			Amp=mad_f_tofixed(AmpFactor);
 		}
 		else
-			/* Use the phone-like filter if the argument is the *
+			* Use the phone-like filter if the argument is the *
 			 * 'phone' string. Look at the comment of the case marked
 			 * {6} in the Unix section for details.
-			 */
+			 *
 			if(strcmp(argv[i],"phone")==0)
 			{
 				if(DoPhoneFilter)
@@ -789,25 +828,25 @@ static int ParseArgs(int argc, char * const argv[])
 			}
 			else
 			{
-				/* The argument is not a recognized one. Print the
+				* The argument is not a recognized one. Print the
 				 * usage guidelines and stop there.
-				 */
+				 *
 				PrintUsage();
 				return(1);
 			}
 	}
-#endif /* HAVE_GETOPT */
+#endif * HAVE_GETOPT *
 
-	/* Initialize the subband-domain filter coefficients to one if
+	* Initialize the subband-domain filter coefficients to one if
 	 * filtering is requested.
-	 */
+	 *
 	if(Amp!=MAD_F_ONE || DoPhoneFilter)
 		for(i=0;i<32;i++)
 			Filter[i]=MAD_F_ONE;
 
-	/* The amplification/attenuation is applied to the subband-domain
+	* The amplification/attenuation is applied to the subband-domain
      * filter definition.
-	 */
+	 *
 	if(Amp!=MAD_F_ONE)
 	{
 		DoFilter=1;
@@ -815,12 +854,12 @@ static int ParseArgs(int argc, char * const argv[])
 			Filter[i]=Amp;
 	}
 
-	/* The telephone-like filter is applied to the subband-domain
+	* The telephone-like filter is applied to the subband-domain
 	 * filter definition. All subbands are set to zero except bands 2
 	 * to 6. This programs author has no access to the MPEG audio
 	 * specification, he does not know the frequencies bands covered
 	 * by the MPEG subbands.
-	 */
+	 *
 	if(DoPhoneFilter)
 	{
 		DoFilter=1;
@@ -829,37 +868,40 @@ static int ParseArgs(int argc, char * const argv[])
 			Filter[i]=MAD_F(0);
 	}
 
-	/* Command-line arguments are okay. */
+	* Command-line arguments are okay. *
 	return(0);
 }
+*/
 
 /****************************************************************************
  * Program entry point.														*
  ****************************************************************************/
+/*
 int main(int argc, char *argv[])
 {
 	char	*cptr;
 	int		Status;
 
-	/* Keep this for error messages. */
+	* Keep this for error messages. *
 	cptr=strrchr(argv[0],'/');
 	if(cptr==NULL)
 		ProgName=argv[0];
 	else
 		ProgName=cptr+1;
 
-	/* The command-line arguments are analyzed. */
+	* The command-line arguments are analyzed. *
 	if(ParseArgs(argc,argv))
 		return(1);
 
-	/* Decode stdin to stdout. */
+	* Decode stdin to stdout. *
 	Status=MpegAudioDecoder(stdin,stdout);
 	if(Status)
 		fprintf(stderr,"%s: an error occurred during decoding.\n",ProgName);
 
-	/* All done. */
+	* All done. *
 	return(Status);
 }
+*/
 
 /*  LocalWords:  BUFLEN HTAB madlld libmad bstdfile getopt subband ParseArgs JS
  */
@@ -880,3 +922,13 @@ int main(int argc, char *argv[])
 /****************************************************************************
  * End of file madlld.c														*
  ****************************************************************************/
+
+error_code mad_decode(FILE *file, signed short **sample_data, size_t *n_samples) {
+    int r;
+    assert(file != NULL);
+    r = MpegAudioDecoder(file, sample_data, n_samples);
+    if ( r != 0 ) {
+        return PRODUCER_FAILED_TO_READ_MP3_FILE;
+    }
+    return SUCCESS;
+}

@@ -3,3 +3,4 @@
 *.log
 *.bak
 src/music-box
+doc/blog/*.html

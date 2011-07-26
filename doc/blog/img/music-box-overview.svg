@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="1587.4492"
+   height="883.5"
+   id="svg3762"
+   version="1.1"
+   inkscape:version="0.48.1 r9760"
+   sodipodi:docname="music-box-overview.svg"
+   inkscape:export-filename="/home/fabian/music-box/doc/blog/img/music-box-overview.orig.png"
+   inkscape:export-xdpi="90"
+   inkscape:export-ydpi="90">
+  <title
+     id="title3042">music box overview</title>
+  <defs
+     id="defs3764">
+    <marker
+       inkscape:stockid="Arrow1Mend"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow1Mend"
+       style="overflow:visible">
+      <path
+         id="path4920"
+         d="M 0,0 5,-5 -12.5,0 5,5 0,0 z"
+         style="fill-rule:evenodd;stroke:#000000;stroke-width:1pt;marker-start:none"
+         transform="matrix(-0.4,0,0,-0.4,-4,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow1Send"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow1Send"
+       style="overflow:visible">
+      <path
+         id="path4926"
+         d="M 0,0 5,-5 -12.5,0 5,5 0,0 z"
+         style="fill-rule:evenodd;stroke:#000000;stroke-width:1pt;marker-start:none"
+         transform="matrix(-0.2,0,0,-0.2,-1.2,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow2Lend"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow2Lend"
+       style="overflow:visible">
+      <path
+         id="path4932"
+         style="font-size:12px;fill-rule:evenodd;stroke-width:0.625;stroke-linejoin:round"
+         d="M 8.7185878,4.0337352 -2.2072895,0.01601326 8.7185884,-4.0017078 c -1.7454984,2.3720609 -1.7354408,5.6174519 -6e-7,8.035443 z"
+         transform="matrix(-1.1,0,0,-1.1,-1.1,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow1Lend"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow1Lend"
+       style="overflow:visible">
+      <path
+         id="path4914"
+         d="M 0,0 5,-5 -12.5,0 5,5 0,0 z"
+         style="fill-rule:evenodd;stroke:#000000;stroke-width:1pt;marker-start:none"
+         transform="matrix(-0.8,0,0,-0.8,-10,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="1"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.6"
+     inkscape:cx="895.15307"
+     inkscape:cy="420.57587"
+     inkscape:current-layer="layer1"
+     inkscape:document-units="px"
+     showgrid="true"
+     inkscape:window-width="1366"
+     inkscape:window-height="744"
+     inkscape:window-x="0"
+     inkscape:window-y="24"
+     inkscape:window-maximized="1"
+     fit-margin-top="64"
+     fit-margin-left="64"
+     fit-margin-right="64"
+     fit-margin-bottom="64">
+    <inkscape:grid
+       type="xygrid"
+       id="grid3770"
+       empspacing="5"
+       visible="true"
+       enabled="true"
+       snapvisiblegridlinesonly="true" />
+  </sodipodi:namedview>
+  <metadata
+     id="metadata3767">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title>music box overview</dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     transform="translate(17.046875,-224.25)">
+    <g
+       id="g7082"
+       transform="translate(0,12)">
+      <rect
+         ry="20"
+         y="280"
+         x="350"
+         height="100"
+         width="380"
+         id="rect4544-9"
+         style="fill:#0053fc;fill-opacity:0.16949152;stroke:#0053fc;stroke-width:7.5;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <text
+         sodipodi:linespacing="125%"
+         id="text4638"
+         y="344.91211"
+         x="387.98828"
+         style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+         xml:space="preserve"><tspan
+           y="344.91211"
+           x="387.98828"
+           id="tspan4640"
+           sodipodi:role="line">command shell</tspan></text>
+    </g>
+    <g
+       id="g7087"
+       transform="translate(0,12)">
+      <rect
+         ry="20"
+         y="280"
+         x="810"
+         height="100"
+         width="380"
+         id="rect4544-9-8"
+         style="fill:#0053fc;fill-opacity:0.16949152;stroke:#0053fc;stroke-width:7.5;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <text
+         sodipodi:linespacing="125%"
+         id="text4642"
+         y="344.91211"
+         x="851.76758"
+         style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+         xml:space="preserve"><tspan
+           y="344.91211"
+           x="851.76758"
+           id="tspan4644"
+           sodipodi:role="line">MIDI controller</tspan></text>
+    </g>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;text-align:center;line-height:125%;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="145.54688"
+       y="980"
+       id="text4560"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         id="tspan4562"
+         x="145.54688"
+         y="980">audio</tspan><tspan
+         sodipodi:role="line"
+         x="145.54688"
+         y="1030"
+         id="tspan7034">output</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;text-align:center;line-height:125%;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="145"
+       y="654.06152"
+       id="text4564"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         x="145"
+         y="654.06152"
+         id="tspan4568">music box</tspan><tspan
+         sodipodi:role="line"
+         x="145"
+         y="704.06152"
+         id="tspan4572">library</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;text-align:center;line-height:125%;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="145"
+       y="332"
+       id="text4574"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         id="tspan4576"
+         x="145"
+         y="332">music box</tspan><tspan
+         sodipodi:role="line"
+         x="145"
+         y="382"
+         id="tspan4578">front-ends</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="960"
+       y="820"
+       id="text4598"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         id="tspan4600"
+         x="960"
+         y="820">play on</tspan><tspan
+         sodipodi:role="line"
+         x="960"
+         y="870"
+         id="tspan4610">headphones</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="600"
+       y="820"
+       id="text4602"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         id="tspan4604"
+         x="600"
+         y="820">play on</tspan><tspan
+         sodipodi:role="line"
+         x="600"
+         y="870"
+         id="tspan4608">speakers</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       x="1324"
+       y="720"
+       id="text4718"
+       sodipodi:linespacing="125%"><tspan
+         sodipodi:role="line"
+         id="tspan4720"
+         x="1324"
+         y="720">mp3 files</tspan></text>
+    <g
+       id="g6858-5"
+       transform="matrix(0,1,-1,0,2126,30)">
+      <path
+         inkscape:connector-curvature="0"
+         id="path4726-8"
+         d="m 640,640 0,200"
+         style="fill:#0053fc;fill-opacity:1;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;marker-mid:none;marker-end:none"
+         sodipodi:nodetypes="cc" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-9"
+         d="m 630,820 10,20 10,-20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+    </g>
+    <g
+       id="g6858-8-7"
+       transform="translate(-80,50)">
+      <path
+         inkscape:connector-curvature="0"
+         id="path4726-82-1"
+         d="m 640,730 0,110"
+         style="fill:#0053fc;fill-opacity:1;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;marker-mid:none;marker-end:none"
+         sodipodi:nodetypes="cc" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2-9"
+         d="m 630,820 10,20 10,-20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+    </g>
+    <g
+       id="g6858-8-8"
+       transform="translate(260,50)">
+      <path
+         inkscape:connector-curvature="0"
+         id="path4726-82-7"
+         d="m 640,730 0,110"
+         style="fill:#0053fc;fill-opacity:1;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;marker-mid:none;marker-end:none"
+         sodipodi:nodetypes="cc" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2-90"
+         d="m 630,820 10,20 10,-20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+    </g>
+    <g
+       id="g7092">
+      <rect
+         ry="20"
+         y="540"
+         x="290"
+         height="220.00002"
+         width="980"
+         id="rect4544"
+         style="fill:#0053fc;fill-opacity:0.16949152;stroke:#0053fc;stroke-width:7.5;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <path
+         sodipodi:nodetypes="cc"
+         inkscape:connector-curvature="0"
+         id="path6955"
+         d="m 290,620 980,0"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <text
+         sodipodi:linespacing="125%"
+         id="text4718-2"
+         y="596"
+         x="326.4707"
+         style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+         xml:space="preserve"><tspan
+           id="tspan6931"
+           y="596"
+           x="326.4707"
+           sodipodi:role="line">API: load mp3, play, crossfade, set volume, ...</tspan></text>
+      <text
+         sodipodi:linespacing="125%"
+         id="text4550"
+         y="704"
+         x="778.61328"
+         style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+         xml:space="preserve"><tspan
+           style="font-weight:bold;text-align:center;text-anchor:middle;-inkscape-font-specification:Sans Bold"
+           y="704"
+           x="778.61328"
+           id="tspan4552"
+           sodipodi:role="line">libmbx</tspan></text>
+    </g>
+    <g
+       id="g7077"
+       transform="translate(-10,0)">
+      <rect
+         ry="20"
+         y="919.99951"
+         x="300"
+         height="120.00047"
+         width="1079.9999"
+         id="rect4544-2"
+         style="fill:#0053fc;fill-opacity:0.16949152;stroke:#0053fc;stroke-width:7.5;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <text
+         sodipodi:linespacing="125%"
+         id="text4554"
+         y="991.03491"
+         x="839.26752"
+         style="font-size:40px;font-style:normal;font-weight:normal;text-align:center;line-height:125%;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+         xml:space="preserve"><tspan
+           id="tspan4558"
+           y="991.03491"
+           x="839.26752"
+           sodipodi:role="line">pulseaudio</tspan></text>
+    </g>
+    <g
+       id="g3063"
+       transform="translate(-2.95312,0)">
+      <path
+         inkscape:connector-curvature="0"
+         id="path4726-82"
+         d="m 542.95312,407.75 0,110"
+         style="fill:#0053fc;fill-opacity:1;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;marker-mid:none;marker-end:none"
+         sodipodi:nodetypes="cc" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2"
+         d="m 532.95312,497.75 10,20 10,-20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2-95"
+         d="m 532.95312,427.75 10,-20 10,20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+    </g>
+    <g
+       transform="translate(457.04688,0)"
+       id="g3063-6">
+      <path
+         inkscape:connector-curvature="0"
+         id="path4726-82-73"
+         d="m 542.95312,407.75 0,110"
+         style="fill:#0053fc;fill-opacity:1;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;marker-mid:none;marker-end:none"
+         sodipodi:nodetypes="cc" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2-6"
+         d="m 532.95312,497.75 10,20 10,-20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+      <path
+         sodipodi:nodetypes="ccc"
+         inkscape:connector-curvature="0"
+         id="path6850-2-95-5"
+         d="m 532.95312,427.75 10,-20 10,20"
+         style="fill:none;stroke:#0053fc;stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none" />
+    </g>
+  </g>
+</svg>

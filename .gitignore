@@ -4,3 +4,4 @@
 *.bak
 src/music-box
 doc/blog/*.html
+src/barcode-scanner/main

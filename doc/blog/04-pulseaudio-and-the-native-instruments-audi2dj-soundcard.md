@@ -148,7 +148,7 @@ Step 4: Make the configuration permanent
 ----------------------------------------
 
 In order to make the configuration permanent, you can add the `load-module`
-commands to your `/etc/pulse/default.pa` file.
+commands to your `~/.pulse/default.pa` file.
 
 [1]: img/Audio2DJ.jpg
 [2]: http://www.native-instruments.com

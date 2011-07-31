@@ -1,6 +1,20 @@
-music box 5 / architectural overview
-====================================
+music box 6 / music box library internals
+=========================================
 
+I didn't work a lot on the music box during summer. However, I restructured
+the code, and I want to use this post to explain how the music box library
+will be structured internally.
+
+Firstly, I decieded to keep the software as simple as possible, just to
+make sure that I will actually continue and build the hardware.
+
+Functional Elements
+-------------------
+
+
+The 
+
+It wa
 In this post, I will present an overview of the target architecture of the
 music box software. This post describes the future components of the software,
 not its current state on [github][5]. The aim of this post is to give an

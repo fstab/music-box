@@ -63,7 +63,7 @@
 #include <assert.h>
 #include "bstdfile.h"
 #include "mad_decoder.h"
-#include "log.h"
+#include "libmbx/common/log.h"
 
 /* Should we use getopt() for command-line arguments parsing? */
 /*
@@ -279,7 +279,7 @@ static int PrintFrameInfo(struct mad_header *Header)
 			break;
 	}
 
-	log_debug(MP3_DECODER, "%lu kb/s audio MPEG layer %s stream %s CRC, "
+	mbx_log_debug(MBX_LOG_MP3LIB, "%lu kb/s audio MPEG layer %s stream %s CRC, "
 			"%s with %s emphasis at %d Hz sample rate",
 			Header->bitrate,Layer,
 			Header->flags&MAD_FLAG_PROTECTION?"with":"without",
@@ -372,7 +372,7 @@ static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n
 	BstdFile=NewBstdFile(InputFp);
 	if(BstdFile==NULL)
 	{
-		log_error(MP3_DECODER, "mad-decoder: can't create a new bstdfile_t (%s)", strerror(errno));
+		mbx_log_error(MBX_LOG_MP3LIB, "mad-decoder: can't create a new bstdfile_t (%s)", strerror(errno));
 		return(1);
 	}
 
@@ -427,11 +427,11 @@ static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n
 			{
 				if(ferror(InputFp))
 				{
-					log_error(MP3_DECODER, "Read error on bit-stream (%s)", strerror(errno));
+					mbx_log_error(MBX_LOG_MP3LIB, "Read error on bit-stream (%s)", strerror(errno));
 					Status=1;
 				}
 				if(feof(InputFp))
-					log_debug(MP3_DECODER, "End of input stream");
+					mbx_log_debug(MBX_LOG_MP3LIB, "End of input stream");
 				break;
 			}
 
@@ -513,7 +513,7 @@ static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n
 				if(Stream.error!=MAD_ERROR_LOSTSYNC ||
 				   Stream.this_frame!=GuardPtr)
 				{
-					log_debug(MP3_DECODER, "Recoverable frame level error ()");//, MadErrorString(&Stream));
+					mbx_log_debug(MBX_LOG_MP3LIB, "Recoverable frame level error ()");//, MadErrorString(&Stream));
 					fflush(stderr);
 				}
 				continue;
@@ -523,7 +523,7 @@ static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n
 					continue;
 				else
 				{
-					log_error(MP3_DECODER, "Unrecoverable frame level error ().\n");//,MadErrorString(&Stream));
+					mbx_log_error(MBX_LOG_MP3LIB, "Unrecoverable frame level error ().\n");//,MadErrorString(&Stream));
 					Status=1;
 					break;
 				}
@@ -669,7 +669,7 @@ static int MpegAudioDecoder(FILE *InputFp, signed short **sample_data, size_t *n
 		 */
 		mad_timer_string(Timer,Buffer,"%lu:%02lu.%03u",
 						 MAD_UNITS_MINUTES,MAD_UNITS_MILLISECONDS,0);
-		log_debug(MP3_DECODER, "mad-decoder: %lu frames decoded (%s)", FrameCount,Buffer);
+		mbx_log_debug(MBX_LOG_MP3LIB, "mad-decoder: %lu frames decoded (%s)", FrameCount,Buffer);
 	}
 
 	/* That's the end of the world (in the H. G. Wells way). */
@@ -923,12 +923,13 @@ int main(int argc, char *argv[])
  * End of file madlld.c														*
  ****************************************************************************/
 
-error_code mad_decode(FILE *file, signed short **sample_data, size_t *n_samples) {
+mbx_error_code mad_decode(FILE *file, signed short **sample_data, size_t *n_samples) {
     int r;
     assert(file != NULL);
     r = MpegAudioDecoder(file, sample_data, n_samples);
+    mbx_log_debug(MBX_LOG_MP3LIB, "Decoded %zu samples.", *n_samples);
     if ( r != 0 ) {
-        return PRODUCER_FAILED_TO_READ_MP3_FILE;
+        return MBX_FAILED_TO_LOAD_MP3;
     }
-    return SUCCESS;
+    return MBX_SUCCESS;
 }

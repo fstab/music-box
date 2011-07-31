@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <string.h>
 #include <errno.h>
-#include "log.h"
+#include "libmbx/common/log.h"
 #include "shell.h"
 
 static FILE *open_logfile(const char *path);
@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
                 shell_set_quiet(1);
                 break;
             case 'l':
-                set_logfile(open_logfile(optarg));
+                mbx_log_file(open_logfile(optarg));
                 break;
             default:
                 fprintf(stderr, "Usage: %s [-l logfile] [-q]\n", argv[0]);
@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
                 exit(EXIT_FAILURE);
         }
     }
-    set_log_level_debug(); /* this is a test program, we always want debug */
+    mbx_log_level_debug(); /* this is a test program, we always want debug */
     shell_run();
     return 0;
 }

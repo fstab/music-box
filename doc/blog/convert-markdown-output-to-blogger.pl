@@ -7,7 +7,9 @@ my %imgurls = (
     'music-box-overview.png'
     => 'http://4.bp.blogspot.com/-mpoqLq3MqMs/TjVFkyhllSI/AAAAAAAAADc/-zBEqOknCl8/s1600/music-box-overview.png',
     'Audio2DJ.jpg'
-    => 'http://1.bp.blogspot.com/-lFS55wFpTwY/TjQsn4cHGKI/AAAAAAAAADU/h2xqmpMA40I/s1600/Audio2DJ.jpg'
+    => 'http://1.bp.blogspot.com/-lFS55wFpTwY/TjQsn4cHGKI/AAAAAAAAADU/h2xqmpMA40I/s1600/Audio2DJ.jpg',
+    'music-box-minimal-functionality.png'
+    => 'http://2.bp.blogspot.com/-HMpfpOi3-Cw/TrGeZs0USzI/AAAAAAAAAEs/EHv_sLTBBHo/s1600/music-box-minimal-functionality.png'
 );
 
 
